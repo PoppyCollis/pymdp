@@ -17,19 +17,14 @@ from pymdp import utils
 from pymdp.agent import Agent
 from pymdp.envs import Env
 
-# imports
-from pymdp import utils
-from pymdp.envs import Tool_create_single_cut as Tool_create
+# paul's imports
+#from pymdp import utils
+#from pymdp.envs import Tool_create_single_cut as Tool_create
 
-# MY IMPORTS
-#import importlib.util
-#import sys
-#spec = importlib.util.spec_from_file_location("pauls_files.tool_create_single_cut", "Documents/Active Inference/pymdp projects/pauls_files/tool_create_single_cut.py")
-#foo = importlib.util.module_from_spec(spec)
-#sys.modules["pauls_files.tool_create_single_cut"] = foo
-#spec.loader.exec_module(foo)
-#Tool_create = foo.Tool_create_single_cut
-
+# my imports
+import sys
+sys.path.append('/home/poppy/Documents/Active Inference/pymdp projects/pauls_files')
+from tool_create_single_cut import Tool_create_single_cut as Tool_create
 
 import random
 import itertools
@@ -152,8 +147,6 @@ Build B Matrix:
     Dimensions are [s[t+1] s[t], action]
     There are 2 states. Size of matrices = 5*5*2*4 (the 2 is the room state influencing the next tool state) 
     and 2*2*2 (next room state is only affected by current room state - current tool state has no influence)
-
-
 """
 
 def build_B_tool(B, fully_known, prob=1.):
@@ -278,7 +271,7 @@ A_init, pA_init = np.copy(A), np.copy(pA)
 # B MATRIX
 B_factor_list=[[0,1],[1]] # B_tool depends on tool and room, B_room only depends on room
 B_empty = utils.random_B_matrix(num_states, num_controls, B_factor_list=B_factor_list)
-B = fill_B(B_empty, fully_known=False, prob=prob_B)
+B = fill_B(B_empty, fully_known = True, prob=prob_B)
 pB = utils.dirichlet_like(B,scale=1.)
 B_init, pB_init = np.copy(B), np.copy(pB)
 
@@ -390,7 +383,7 @@ my_agent = Agent(A=A, pA=pA, B = B, pB=pB, C = C, policy_len=policy_len, policie
 
 # environment
 my_env = Tool_create(init_state=init_room, init_tool=init_tool, reward_location=reward_location) # reduced_obs if using tool3.py 
-num_runs = 3
+num_runs = 1
 
 def run_AIF_loop(agent, env, A_init, pA_init, reward_location, num_runs=1):
     
@@ -428,7 +421,7 @@ def run_AIF_loop(agent, env, A_init, pA_init, reward_location, num_runs=1):
         while j < 100 and finish == False:
             
             qs = my_agent.infer_states(next_observation)
-            q_pi, G = my_agent.infer_policies_factorized() # this is new method for factorised B
+            q_pi, G, G1, G2, G3 = my_agent.infer_policies_factorized() # this is new method for factorised B
             
             qA=my_agent.update_A(next_observation)   
             qB=my_agent.update_B(qs_prev)
