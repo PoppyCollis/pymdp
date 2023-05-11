@@ -283,8 +283,9 @@ def update_posterior_policies_factorized(
         Negative expected free energies of each policy, i.e. a vector containing one negative expected free energy per policy.
     """
 
-    n_policies = len(policies)
+    n_policies = len(policies) 
     G = np.zeros(n_policies)
+    
     q_pi = np.zeros((n_policies, 1))
 
     if E is None:
@@ -294,6 +295,7 @@ def update_posterior_policies_factorized(
 
     for idx, policy in enumerate(policies):
         qs_pi = get_expected_states_interactions(qs, B, B_factor_list, policy)
+        #print(idx, len(policies))
         qo_pi = get_expected_obs_factorized(qs_pi, A, A_factor_list)
 
         if use_utility:
@@ -311,6 +313,114 @@ def update_posterior_policies_factorized(
     q_pi = softmax(G * gamma + lnE)    
 
     return q_pi, G
+
+def update_posterior_policies_factorized_expand_G(
+    qs,
+    A,
+    B,
+    C,
+    A_factor_list,
+    B_factor_list,
+    policies,
+    use_utility=True,
+    use_states_info_gain=True,
+    use_param_info_gain=False,
+    pA=None,
+    pB=None,
+    E = None,
+    gamma=16.0
+):
+    """
+    Update posterior beliefs about policies by computing expected free energy of each policy and integrating that
+    with the prior over policies ``E``. This is intended to be used in conjunction
+    with the ``update_posterior_states`` method of the ``inference`` module, since only the posterior about the hidden states at the current timestep
+    ``qs`` is assumed to be provided, unconditional on policies. The predictive posterior over hidden states under all policies Q(s, pi) is computed 
+    using the starting posterior about states at the current timestep ``qs`` and the generative model (e.g. ``A``, ``B``, ``C``)
+
+    Parameters
+    ----------
+    qs: ``numpy.ndarray`` of dtype object
+        Marginal posterior beliefs over hidden states at current timepoint (unconditioned on policies)
+    A: ``numpy.ndarray`` of dtype object
+        Sensory likelihood mapping or 'observation model', mapping from hidden states to observations. Each element ``A[m]`` of
+        stores an ``numpy.ndarray`` multidimensional array for observation modality ``m``, whose entries ``A[m][i, j, k, ...]`` store 
+        the probability of observation level ``i`` given hidden state levels ``j, k, ...``
+    B: ``numpy.ndarray`` of dtype object
+        Dynamics likelihood mapping or 'transition model', mapping from hidden states at ``t`` to hidden states at ``t+1``, given some control state ``u``.
+        Each element ``B[f]`` of this object array stores a 3-D tensor for hidden state factor ``f``, whose entries ``B[f][s, v, u]`` store the probability
+        of hidden state level ``s`` at the current time, given hidden state level ``v`` and action ``u`` at the previous time.
+    C: ``numpy.ndarray`` of dtype object
+       Prior over observations or 'prior preferences', storing the "value" of each outcome in terms of relative log probabilities. 
+       This is softmaxed to form a proper probability distribution before being used to compute the expected utility term of the expected free energy.
+    A_factor_list: ``list`` of ``list``s of ``int``
+        ``list`` that stores the indices of the hidden state factor indices that each observation modality depends on. For example, if ``A_factor_list[m] = [0, 1]``, then
+        observation modality ``m`` depends on hidden state factors 0 and 1.
+    B_factor_list: ``list`` of ``list``s of ``int``
+        ``list`` that stores the indices of the hidden state factor indices that each hidden state factor depends on. For example, if ``B_factor_list[f] = [0, 1]``, then
+        the transitions in hidden state factor ``f`` depend on hidden state factors 0 and 1.
+    policies: ``list`` of 2D ``numpy.ndarray``
+        ``list`` that stores each policy in ``policies[p_idx]``. Shape of ``policies[p_idx]`` is ``(num_timesteps, num_factors)`` where `num_timesteps` is the temporal
+        depth of the policy and ``num_factors`` is the number of control factors.
+    use_utility: ``Bool``, default ``True``
+        Boolean flag that determines whether expected utility should be incorporated into computation of EFE.
+    use_states_info_gain: ``Bool``, default ``True``
+        Boolean flag that determines whether state epistemic value (info gain about hidden states) should be incorporated into computation of EFE.
+    use_param_info_gain: ``Bool``, default ``False`` 
+        Boolean flag that determines whether parameter epistemic value (info gain about generative model parameters) should be incorporated into computation of EFE.
+    pA: ``numpy.ndarray`` of dtype object, optional
+        Dirichlet parameters over observation model (same shape as ``A``)
+    pB: ``numpy.ndarray`` of dtype object, optional
+        Dirichlet parameters over transition model (same shape as ``B``)
+    E: 1D ``numpy.ndarray``, optional
+        Vector of prior probabilities of each policy (what's referred to in the active inference literature as "habits")
+    gamma: float, default 16.0
+        Prior precision over policies, scales the contribution of the expected free energy to the posterior over policies
+
+    Returns
+    ----------
+    q_pi: 1D ``numpy.ndarray``
+        Posterior beliefs over policies, i.e. a vector containing one posterior probability per policy.
+    G: 1D ``numpy.ndarray``
+        Negative expected free energies of each policy, i.e. a vector containing one negative expected free energy per policy.
+    """
+
+    n_policies = len(policies) 
+    G = np.zeros(n_policies)
+    G1 = np.zeros(n_policies)
+    G2 = np.zeros(n_policies)
+    G3 = np.zeros(n_policies)
+    
+    q_pi = np.zeros((n_policies, 1))
+
+    if E is None:
+        lnE = spm_log_single(np.ones(n_policies) / n_policies)
+    else:
+        lnE = spm_log_single(E) 
+
+    for idx, policy in enumerate(policies):
+        qs_pi = get_expected_states_interactions(qs, B, B_factor_list, policy)
+        #print(idx, len(policies))
+        qo_pi = get_expected_obs_factorized(qs_pi, A, A_factor_list)
+
+        if use_utility:
+            G[idx] += calc_expected_utility(qo_pi, C)
+            G1[idx] += calc_expected_utility(qo_pi, C)
+
+        if use_states_info_gain:
+            G[idx] += calc_states_info_gain_factorized(A, qs_pi, A_factor_list)
+            G2[idx] += calc_states_info_gain_factorized(A, qs_pi, A_factor_list)
+
+        if use_param_info_gain:
+            if pA is not None:
+                G[idx] += calc_pA_info_gain_factorized(pA, qo_pi, qs_pi, A_factor_list)
+                G3[idx] += calc_pA_info_gain_factorized(pA, qo_pi, qs_pi, A_factor_list)
+            if pB is not None:
+                G[idx] += calc_pB_info_gain_interactions(pB, qs_pi, qs, B_factor_list, policy)
+                G3[idx] += calc_pB_info_gain_interactions(pB, qs_pi, qs, B_factor_list, policy)
+
+    q_pi = softmax(G * gamma + lnE)    
+
+    return q_pi, G, G1, G2, G3
 
 def get_expected_states(qs, B, policy):
     """
@@ -859,6 +969,7 @@ def sample_action(q_pi, policies, num_controls, action_selection="deterministic"
             action_marginals[factor_i][action_i] += q_pi[pol_idx]
     
     action_marginals = utils.norm_dist_obj_arr(action_marginals)
+
 
     selected_policy = np.zeros(num_factors)
     for factor_i in range(num_factors):
